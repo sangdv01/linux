@@ -183,9 +183,7 @@ builder.defineCatalogHandler(async ({ type, id }) => {
         Date.now() - catalogCache.time < CACHE_TTL
     ) {
         console.log("Catalog cache HIT");
-        return {
-            metas: catalogCache.metas
-        };
+        return { metas: catalogCache.metas };
     }
 
     console.log("Catalog cache MISS");
@@ -193,24 +191,37 @@ builder.defineCatalogHandler(async ({ type, id }) => {
     try {
         const matches = await getMatches();
 
-        console.log("Found football matches:", matches.length);
-        console.log("Checking rooms...");
+        const eplTeams = new Set([
+            "Aston Villa",
+            "Nottingham Forest",
+            "Bournemouth",
+            "Brentford",
+            "Chelsea",
+            "Hull City",
+            "Crystal Palace",
+            "Ipswich Town",
+            "Liverpool",
+            "Fulham",
+            "Tottenham",
+            "Everton",
+            "Sunderland",
+            "Arsenal",
+            "Coventry City",
+            "Brighton & Hove Albion",
+            "Manchester United",
+            "Manchester City",
+            "Leeds United",
+            "Newcastle United"
+        ]);
 
-        const results = [];
-        const batchSize = 5;
+        const results = matches.filter(match => {
+            const home = match.description.split(" vs ")[0].trim();
+            const away = match.description.split(" vs ")[1]?.split("\n")[0]?.trim();
 
-        for (let i = 0; i < matches.length; i += batchSize) {
-            const batch = matches.slice(i, i + batchSize);
-            const checked = await Promise.all(batch.map(hasRoom));
+            return eplTeams.has(home) && eplTeams.has(away);
+        });
 
-            for (const match of checked) {
-                if (match) {
-                    results.push(match);
-                }
-            }
-        }
-
-        console.log("Matches with HLS:", results.length);
+        console.log("EPL matches:", results.length);
 
         catalogCache = {
             time: Date.now(),
@@ -227,7 +238,6 @@ builder.defineCatalogHandler(async ({ type, id }) => {
         return { metas: [] };
     }
 });
-
 builder.defineMetaHandler(async ({ id }) => { const slug = id.substring("xoiche:".length); const match = await getMatches(); const found = match.find(m => m.id === id); return { meta: found || { id, type: "movie", name: slug } }; });
 
 builder.defineStreamHandler(async ({ type, id }) => {
@@ -289,4 +299,5 @@ serveHTTP(builder.getInterface(), {
 
 console.log("Xôi Chè addon running on http://localhost:7001");
 console.log("Manifest: http://127.0.0.1:7001/manifest.json");
+
 
