@@ -69,7 +69,8 @@ async function getMatches() {
     const matches = [
         ...(Array.isArray(data.live) ? data.live : []),
         ...(Array.isArray(data.spotlight) ? data.spotlight : []),
-        ...(Array.isArray(data.scoreboard) ? data.scoreboard : [])
+        ...(Array.isArray(data.scoreboard) ? data.scoreboard : []),
+        ...(Array.isArray(data.pinned) ? data.pinned : [])
     ];
 
     const unique = [];
@@ -1272,3 +1273,4 @@ app.listen(
         );
     }
 );
+
