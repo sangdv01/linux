@@ -273,7 +273,9 @@ function filterEPL(matches) {
         "Sunderland",
         "Arsenal",
         "Coventry City",
+        "Coventry",
         "Brighton & Hove Albion",
+        "Brighton",
         "Manchester United",
         "Manchester City",
         "Leeds United",
@@ -932,6 +934,8 @@ app.listen(
         );
     }
 );
+
+
 
 
 
