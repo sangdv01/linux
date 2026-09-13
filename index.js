@@ -1,7 +1,13 @@
 ﻿const axios = require("axios");
-const { addonBuilder, serveHTTP } = require("stremio-addon-sdk");
+const { addonBuilder, getRouter } = require("stremio-addon-sdk");
+const express = require("express");
 
 const XOICHE = "https://xoiche.tv";
+const PORT = process.env.PORT || 7001;
+const PUBLIC_BASE_URL =
+    process.env.RENDER_EXTERNAL_URL ||
+    `http://127.0.0.1:${PORT}`;
+
 const CACHE_TTL = 60 * 1000;
 
 let catalogCache = {
@@ -10,14 +16,17 @@ let catalogCache = {
 };
 
 const HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153.0.0.0 Safari/537.36",
-    "Accept": "application/json,text/html,application/xhtml+xml,*/*;q=0.8",
-    "Accept-Language": "vi,en-US;q=0.9,en;q=0.8"
+    "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153.0.0.0 Safari/537.36",
+    "Accept":
+        "application/json,text/html,application/xhtml+xml,*/*;q=0.8",
+    "Accept-Language":
+        "vi,en-US;q=0.9,en;q=0.8"
 };
 
 const builder = new addonBuilder({
     id: "community.xoiche",
-    version: "1.2.3",
+    version: "1.3.0",
     name: "Xôi Chè Live",
     description: "Xem trực tiếp bóng đá từ Xôi Chè",
     resources: ["catalog", "meta", "stream"],
@@ -44,14 +53,6 @@ async function getMatches() {
 
     const data = response.data;
 
-    /*
-     * Xôi Chè API trả về:
-     * live
-     * spotlight
-     * scoreboard
-     *
-     * Gộp cả 3 nhóm để không bỏ sót trận.
-     */
     const matches = [
         ...(Array.isArray(data.live) ? data.live : []),
         ...(Array.isArray(data.spotlight) ? data.spotlight : []),
@@ -85,25 +86,34 @@ async function getMatches() {
 
         const kickoff = new Date(match.kickoffAt);
 
-        const kickoffTime = kickoff.toLocaleTimeString("vi-VN", {
-            timeZone: "Asia/Ho_Chi_Minh",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false
-        });
+        const kickoffTime = kickoff.toLocaleTimeString(
+            "vi-VN",
+            {
+                timeZone: "Asia/Ho_Chi_Minh",
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false
+            }
+        );
 
-        const kickoffDate = kickoff.toLocaleDateString("vi-VN", {
-            timeZone: "Asia/Ho_Chi_Minh",
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric"
-        });
+        const kickoffDate = kickoff.toLocaleDateString(
+            "vi-VN",
+            {
+                timeZone: "Asia/Ho_Chi_Minh",
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric"
+            }
+        );
 
         unique.push({
             id: "xoiche:" + match.slug,
             type: "movie",
 
-            name: homeName + " vs " + awayName,
+            name:
+                homeName +
+                " vs " +
+                awayName,
 
             description:
                 homeName +
@@ -122,13 +132,25 @@ async function getMatches() {
                 "/tran-dau/" +
                 encodeURIComponent(match.slug),
 
-            homeLogo: match.homeTeam?.logoUrl || "",
-            awayLogo: match.awayTeam?.logoUrl || "",
+            homeLogo:
+                match.homeTeam?.logoUrl || "",
+
+            awayLogo:
+                match.awayTeam?.logoUrl || "",
 
             kickoffAt: match.kickoffAt,
 
-            competition: match.competition?.name || "",
-            competitionLogo: match.competition?.logoUrl || ""
+            competition:
+                match.competition?.name || "",
+
+            competitionLogo:
+                match.competition?.logoUrl || "",
+
+            poster:
+                PUBLIC_BASE_URL +
+                "/poster/" +
+                encodeURIComponent(match.slug) +
+                ".svg"
         });
     }
 
@@ -194,20 +216,31 @@ function hasHls(sources) {
 
 
 async function hasRoom(match) {
-    const slug = match.id.substring("xoiche:".length);
+    const slug =
+        match.id.substring("xoiche:".length);
 
     try {
-        const sources = await getSources(slug);
+        const sources =
+            await getSources(slug);
 
         if (hasHls(sources)) {
-            console.log("ROOM OK:", match.name);
+            console.log(
+                "ROOM OK:",
+                match.name
+            );
+
             return match;
         }
 
-        console.log("NO ROOM:", match.name);
+        console.log(
+            "NO ROOM:",
+            match.name
+        );
+
         return null;
 
     } catch (err) {
+
         console.log(
             "CHECK ERROR:",
             match.name,
@@ -220,162 +253,463 @@ async function hasRoom(match) {
 }
 
 
-builder.defineCatalogHandler(async ({ type, id }) => {
-    console.log(
-        "Catalog request:",
-        type + "/" + id
-    );
+/*
+ * EPL FILTER
+ */
+function filterEPL(matches) {
 
-    if (
-        type !== "movie" ||
-        id !== "xoiche-live"
-    ) {
-        return {
-            metas: []
-        };
-    }
+    const eplTeams = new Set([
+        "Aston Villa",
+        "Nottingham Forest",
+        "Bournemouth",
+        "Brentford",
+        "Chelsea",
+        "Hull City",
+        "Crystal Palace",
+        "Ipswich Town",
+        "Liverpool",
+        "Fulham",
+        "Tottenham",
+        "Everton",
+        "Sunderland",
+        "Arsenal",
+        "Coventry City",
+        "Brighton & Hove Albion",
+        "Manchester United",
+        "Manchester City",
+        "Leeds United",
+        "Newcastle United"
+    ]);
 
-    if (
-        catalogCache.metas &&
-        Date.now() - catalogCache.time < CACHE_TTL
-    ) {
-        console.log("Catalog cache HIT");
+    return matches.filter(match => {
 
-        return {
-            metas: catalogCache.metas
-        };
-    }
+        const home =
+            match.description
+                .split(" vs ")[0]
+                .trim();
 
-    console.log("Catalog cache MISS");
+        const away =
+            match.description
+                .split(" vs ")[1]
+                ?.split("\n")[0]
+                ?.trim();
 
-    try {
-        const matches = await getMatches();
-
-        /*
-         * GIỮ NGUYÊN EPL FILTER
-         */
-        const eplTeams = new Set([
-            "Aston Villa",
-            "Nottingham Forest",
-            "Bournemouth",
-            "Brentford",
-            "Chelsea",
-            "Hull City",
-            "Crystal Palace",
-            "Ipswich Town",
-            "Liverpool",
-            "Fulham",
-            "Tottenham",
-            "Everton",
-            "Sunderland",
-            "Arsenal",
-            "Coventry City",
-            "Brighton & Hove Albion",
-            "Manchester United",
-            "Manchester City",
-            "Leeds United",
-            "Newcastle United"
-        ]);
-
-        const results = matches.filter(match => {
-            const home =
-                match.description
-                    .split(" vs ")[0]
-                    .trim();
-
-            const away =
-                match.description
-                    .split(" vs ")[1]
-                    ?.split("\n")[0]
-                    ?.trim();
-
-            return (
-                eplTeams.has(home) &&
-                eplTeams.has(away)
-            );
-        });
-
-        /*
-         * Sắp xếp theo giờ đá
-         */
-        results.sort((a, b) => {
-            return (
-                new Date(a.kickoffAt) -
-                new Date(b.kickoffAt)
-            );
-        });
-
-        console.log(
-            "All football matches:",
-            matches.length
+        return (
+            eplTeams.has(home) &&
+            eplTeams.has(away)
         );
-
-        console.log(
-            "EPL matches:",
-            results.length
-        );
-
-        for (const match of results) {
-            console.log(
-                "EPL:",
-                match.name,
-                "|",
-                match.description
-            );
-        }
-
-        catalogCache = {
-            time: Date.now(),
-            metas: results
-        };
-
-        console.log(
-            "Catalog cache UPDATED"
-        );
-
-        return {
-            metas: results
-        };
-
-    } catch (err) {
-        console.log(
-            "Catalog error:",
-            err.message
-        );
-
-        return {
-            metas: []
-        };
-    }
-});
-
-
-builder.defineMetaHandler(async ({ id }) => {
-    const slug =
-        id.substring("xoiche:".length);
-
-    const matches =
-        await getMatches();
-
-    const found =
-        matches.find(
-            m => m.id === id
-        );
-
-    return {
-        meta:
-            found ||
-            {
-                id,
-                type: "movie",
-                name: slug
-            }
-    };
-});
+    });
+}
 
 
 /*
- * GIỮ NGUYÊN LOGIC HLS
+ * CATALOG
+ */
+builder.defineCatalogHandler(
+    async ({ type, id }) => {
+
+        console.log(
+            "Catalog request:",
+            type + "/" + id
+        );
+
+        if (
+            type !== "movie" ||
+            id !== "xoiche-live"
+        ) {
+            return {
+                metas: []
+            };
+        }
+
+        if (
+            catalogCache.metas &&
+            Date.now() - catalogCache.time <
+                CACHE_TTL
+        ) {
+
+            console.log(
+                "Catalog cache HIT"
+            );
+
+            return {
+                metas: catalogCache.metas
+            };
+        }
+
+        console.log(
+            "Catalog cache MISS"
+        );
+
+        try {
+
+            const matches =
+                await getMatches();
+
+            const results =
+                filterEPL(matches);
+
+            results.sort(
+                (a, b) =>
+                    new Date(a.kickoffAt) -
+                    new Date(b.kickoffAt)
+            );
+
+            console.log(
+                "All football matches:",
+                matches.length
+            );
+
+            console.log(
+                "EPL matches:",
+                results.length
+            );
+
+            for (
+                const match of results
+            ) {
+
+                console.log(
+                    "EPL:",
+                    match.name,
+                    "|",
+                    match.description
+                );
+            }
+
+            catalogCache = {
+                time: Date.now(),
+                metas: results
+            };
+
+            console.log(
+                "Catalog cache UPDATED"
+            );
+
+            return {
+                metas: results
+            };
+
+        } catch (err) {
+
+            console.log(
+                "Catalog error:",
+                err.message
+            );
+
+            return {
+                metas: []
+            };
+        }
+    }
+);
+
+
+/*
+ * META
+ */
+builder.defineMetaHandler(
+    async ({ id }) => {
+
+        const slug =
+            id.substring("xoiche:".length);
+
+        const matches =
+            await getMatches();
+
+        const found =
+            matches.find(
+                m => m.id === id
+            );
+
+        return {
+            meta:
+                found ||
+                {
+                    id,
+                    type: "movie",
+                    name: slug
+                }
+        };
+    }
+);
+
+
+/*
+ * POSTER
+ *
+ * Không gọi HLS.
+ * Chỉ lấy thông tin trận + logo.
+ */
+async function createPosterSVG(slug) {
+
+    let match = null;
+
+    if (catalogCache.metas) {
+
+        match =
+            catalogCache.metas.find(
+                m =>
+                    m.id ===
+                    "xoiche:" + slug
+            );
+    }
+
+    if (!match) {
+
+        const matches =
+            await getMatches();
+
+        match =
+            matches.find(
+                m =>
+                    m.id ===
+                    "xoiche:" + slug
+            );
+    }
+
+    if (!match) {
+        return null;
+    }
+
+    const homeName =
+        match.name
+            .split(" vs ")[0]
+            .trim();
+
+    const awayName =
+        match.name
+            .split(" vs ")[1]
+            .trim();
+
+    const kickoff =
+        new Date(match.kickoffAt);
+
+    const kickoffTime =
+        kickoff.toLocaleTimeString(
+            "vi-VN",
+            {
+                timeZone:
+                    "Asia/Ho_Chi_Minh",
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false
+            }
+        );
+
+    const kickoffDate =
+        kickoff.toLocaleDateString(
+            "vi-VN",
+            {
+                timeZone:
+                    "Asia/Ho_Chi_Minh",
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric"
+            }
+        );
+
+    const escapeXml = value =>
+        String(value || "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&apos;");
+
+    const homeLogo =
+        escapeXml(match.homeLogo);
+
+    const awayLogo =
+        escapeXml(match.awayLogo);
+
+    const home =
+        escapeXml(homeName);
+
+    const away =
+        escapeXml(awayName);
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="600"
+     height="900"
+     viewBox="0 0 600 900">
+
+    <defs>
+
+        <linearGradient
+            id="bg"
+            x1="0"
+            y1="0"
+            x2="1"
+            y2="1">
+
+            <stop
+                offset="0%"
+                stop-color="#101828"/>
+
+            <stop
+                offset="100%"
+                stop-color="#172554"/>
+
+        </linearGradient>
+
+    </defs>
+
+    <rect
+        width="600"
+        height="900"
+        fill="url(#bg)"/>
+
+    <text
+        x="300"
+        y="75"
+        text-anchor="middle"
+        fill="white"
+        font-family="Arial, sans-serif"
+        font-size="30"
+        font-weight="bold">
+
+        XÔI CHÈ LIVE
+
+    </text>
+
+    <text
+        x="300"
+        y="120"
+        text-anchor="middle"
+        fill="#cbd5e1"
+        font-family="Arial, sans-serif"
+        font-size="20">
+
+        PREMIER LEAGUE
+
+    </text>
+
+    <circle
+        cx="190"
+        cy="315"
+        r="125"
+        fill="white"
+        opacity="0.96"/>
+
+    <circle
+        cx="410"
+        cy="315"
+        r="125"
+        fill="white"
+        opacity="0.96"/>
+
+    <image
+        x="90"
+        y="215"
+        width="200"
+        height="200"
+        preserveAspectRatio="xMidYMid meet"
+        href="${homeLogo}"
+        xlink:href="${homeLogo}"/>
+
+    <image
+        x="310"
+        y="215"
+        width="200"
+        height="200"
+        preserveAspectRatio="xMidYMid meet"
+        href="${awayLogo}"
+        xlink:href="${awayLogo}"/>
+
+    <text
+        x="190"
+        y="490"
+        text-anchor="middle"
+        fill="white"
+        font-family="Arial, sans-serif"
+        font-size="25"
+        font-weight="bold">
+
+        ${home}
+
+    </text>
+
+    <text
+        x="410"
+        y="490"
+        text-anchor="middle"
+        fill="white"
+        font-family="Arial, sans-serif"
+        font-size="25"
+        font-weight="bold">
+
+        ${away}
+
+    </text>
+
+    <text
+        x="300"
+        y="365"
+        text-anchor="middle"
+        fill="#facc15"
+        font-family="Arial, sans-serif"
+        font-size="42"
+        font-weight="bold">
+
+        VS
+
+    </text>
+
+    <text
+        x="300"
+        y="610"
+        text-anchor="middle"
+        fill="white"
+        font-family="Arial, sans-serif"
+        font-size="48"
+        font-weight="bold">
+
+        ${kickoffTime}
+
+    </text>
+
+    <text
+        x="300"
+        y="655"
+        text-anchor="middle"
+        fill="#cbd5e1"
+        font-family="Arial, sans-serif"
+        font-size="25">
+
+        ${kickoffDate}
+
+    </text>
+
+    <rect
+        x="80"
+        y="730"
+        width="440"
+        height="2"
+        fill="#475569"/>
+
+    <text
+        x="300"
+        y="785"
+        text-anchor="middle"
+        fill="#94a3b8"
+        font-family="Arial, sans-serif"
+        font-size="20">
+
+        Xem trực tiếp bóng đá
+
+    </text>
+
+</svg>`;
+}
+
+
+/*
+ * STREAM / HLS
+ *
+ * GIỮ NGUYÊN LOGIC CŨ
  */
 builder.defineStreamHandler(
     async ({ type, id }) => {
@@ -395,9 +729,12 @@ builder.defineStreamHandler(
         }
 
         const slug =
-            id.substring("xoiche:".length);
+            id.substring(
+                "xoiche:".length
+            );
 
         try {
+
             const sources =
                 await getSources(slug);
 
@@ -406,9 +743,14 @@ builder.defineStreamHandler(
             if (
                 sources.mainChannel?.hlsUrl
             ) {
+
                 streams.push({
-                    name: "Xôi Chè - Main",
-                    title: "Main Channel",
+                    name:
+                        "Xôi Chè - Main",
+
+                    title:
+                        "Main Channel",
+
                     url:
                         sources.mainChannel.hlsUrl
                 });
@@ -418,6 +760,7 @@ builder.defineStreamHandler(
                 const room
                 of sources.partnerRooms || []
             ) {
+
                 if (!room.hlsUrl) {
                     continue;
                 }
@@ -431,7 +774,8 @@ builder.defineStreamHandler(
                         "BLV " +
                         (room.name || ""),
 
-                    url: room.hlsUrl
+                    url:
+                        room.hlsUrl
                 });
             }
 
@@ -442,11 +786,18 @@ builder.defineStreamHandler(
                 const stream
                 of streams
             ) {
+
                 if (
                     !seen.has(stream.url)
                 ) {
-                    seen.add(stream.url);
-                    unique.push(stream);
+
+                    seen.add(
+                        stream.url
+                    );
+
+                    unique.push(
+                        stream
+                    );
                 }
             }
 
@@ -474,17 +825,84 @@ builder.defineStreamHandler(
 );
 
 
-serveHTTP(
-    builder.getInterface(),
-    {
-        port: 7001
+/*
+ * EXPRESS SERVER
+ */
+const app = express();
+
+const addonRouter =
+    getRouter(
+        builder.getInterface()
+    );
+
+app.get(
+    "/poster/:slug.svg",
+    async (req, res) => {
+
+        try {
+
+            const svg =
+                await createPosterSVG(
+                    req.params.slug
+                );
+
+            if (!svg) {
+
+                return res
+                    .status(404)
+                    .send("Poster not found");
+            }
+
+            res.set(
+                "Content-Type",
+                "image/svg+xml"
+            );
+
+            res.set(
+                "Cache-Control",
+                "public, max-age=300"
+            );
+
+            res.send(svg);
+
+        } catch (err) {
+
+            console.log(
+                "Poster error:",
+                err.message
+            );
+
+            res
+                .status(500)
+                .send("Poster error");
+        }
     }
 );
 
-console.log(
-    "Xôi Chè addon running on http://localhost:7001"
+app.use(
+    "/",
+    addonRouter
 );
 
-console.log(
-    "Manifest: http://127.0.0.1:7001/manifest.json"
+app.listen(
+    PORT,
+    "0.0.0.0",
+    () => {
+
+        console.log(
+            "Xôi Chè addon running on port " +
+            PORT
+        );
+
+        console.log(
+            "Public base URL:",
+            PUBLIC_BASE_URL
+        );
+
+        console.log(
+            "Manifest:",
+            PUBLIC_BASE_URL +
+            "/manifest.json"
+        );
+    }
 );
