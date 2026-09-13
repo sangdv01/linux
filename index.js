@@ -9,12 +9,20 @@ const PUBLIC_BASE_URL =
     process.env.RENDER_EXTERNAL_URL ||
     `http://127.0.0.1:${PORT}`;
 
-const CACHE_TTL = 60 * 1000;
+/*
+ * CACHE
+ */
+const CACHE_TTL = 5 * 60 * 1000;
+const POSTER_CACHE_TTL = 24 * 60 * 60 * 1000;
+const LOGO_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 
 let catalogCache = {
     time: 0,
     metas: null
 };
+
+const posterCache = new Map();
+const logoCache = new Map();
 
 const HEADERS = {
     "User-Agent":
@@ -43,7 +51,11 @@ const builder = new addonBuilder({
 });
 
 
+/*
+ * GET MATCHES
+ */
 async function getMatches() {
+
     const response = await axios.get(
         XOICHE + "/api/matches?filter=all",
         {
@@ -64,6 +76,7 @@ async function getMatches() {
     const seen = new Set();
 
     for (const match of matches) {
+
         if (!match || match.sport !== "football") {
             continue;
         }
@@ -78,38 +91,50 @@ async function getMatches() {
 
         seen.add(match.id);
 
-        const homeName = match.homeTeam?.name || "";
-        const awayName = match.awayTeam?.name || "";
+        const homeName =
+            match.homeTeam?.name || "";
+
+        const awayName =
+            match.awayTeam?.name || "";
 
         if (!homeName || !awayName) {
             continue;
         }
 
-        const kickoff = new Date(match.kickoffAt);
+        const kickoff =
+            new Date(match.kickoffAt);
 
-        const kickoffTime = kickoff.toLocaleTimeString(
-            "vi-VN",
-            {
-                timeZone: "Asia/Ho_Chi_Minh",
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: false
-            }
-        );
+        const kickoffTime =
+            kickoff.toLocaleTimeString(
+                "vi-VN",
+                {
+                    timeZone:
+                        "Asia/Ho_Chi_Minh",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: false
+                }
+            );
 
-        const kickoffDate = kickoff.toLocaleDateString(
-            "vi-VN",
-            {
-                timeZone: "Asia/Ho_Chi_Minh",
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric"
-            }
-        );
+        const kickoffDate =
+            kickoff.toLocaleDateString(
+                "vi-VN",
+                {
+                    timeZone:
+                        "Asia/Ho_Chi_Minh",
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric"
+                }
+            );
 
         unique.push({
-            id: "xoiche:" + match.slug,
-            type: "movie",
+            id:
+                "xoiche:" +
+                match.slug,
+
+            type:
+                "movie",
 
             name:
                 homeName +
@@ -126,12 +151,15 @@ async function getMatches() {
                 " - " +
                 kickoffDate,
 
-            releaseInfo: match.kickoffAt,
+            releaseInfo:
+                match.kickoffAt,
 
             website:
                 XOICHE +
                 "/tran-dau/" +
-                encodeURIComponent(match.slug),
+                encodeURIComponent(
+                    match.slug
+                ),
 
             homeLogo:
                 match.homeTeam?.logoUrl || "",
@@ -139,7 +167,8 @@ async function getMatches() {
             awayLogo:
                 match.awayTeam?.logoUrl || "",
 
-            kickoffAt: match.kickoffAt,
+            kickoffAt:
+                match.kickoffAt,
 
             competition:
                 match.competition?.name || "",
@@ -149,7 +178,11 @@ async function getMatches() {
 
             poster:
                 PUBLIC_BASE_URL +
-                "/poster/" + encodeURIComponent(match.slug) + ".png"
+                "/poster/" +
+                encodeURIComponent(
+                    match.slug
+                ) +
+                ".png"
         });
     }
 
@@ -157,72 +190,111 @@ async function getMatches() {
 }
 
 
+/*
+ * GET FIXTURE ID
+ *
+ * GIỮ NGUYÊN LOGIC
+ */
 async function getFixtureId(slug) {
+
     const url =
         XOICHE +
         "/tran-dau/" +
         encodeURIComponent(slug);
 
-    const response = await axios.get(url, {
-        headers: HEADERS,
-        timeout: 20000
-    });
+    const response =
+        await axios.get(
+            url,
+            {
+                headers: HEADERS,
+                timeout: 20000
+            }
+        );
 
-    const html = response.data;
+    const html =
+        response.data;
 
-    const match = html.match(
-        /\\"match\\":\{\\"id\\":\\"([0-9a-f-]{36})\\"[\s\S]*?\\"slug\\":\\"([^"]+)\\"/i
-    );
+    const match =
+        html.match(
+            /\\"match\\":\{\\"id\\":\\"([0-9a-f-]{36})\\"[\s\S]*?\\"slug\\":\\"([^"]+)\\"/i
+        );
 
     if (!match) {
-        throw new Error("Không tìm thấy fixtureId");
+        throw new Error(
+            "Không tìm thấy fixtureId"
+        );
     }
 
     return match[1];
 }
 
 
+/*
+ * GET SOURCES
+ *
+ * GIỮ NGUYÊN LOGIC HLS
+ */
 async function getSources(slug) {
-    const fixtureId = await getFixtureId(slug);
+
+    const fixtureId =
+        await getFixtureId(slug);
 
     const url =
         XOICHE +
         "/api/matches/" +
-        encodeURIComponent(fixtureId) +
+        encodeURIComponent(
+            fixtureId
+        ) +
         "/sources";
 
-    const response = await axios.get(url, {
-        headers: {
-            ...HEADERS,
-            "Accept": "application/json"
-        },
-        timeout: 20000
-    });
+    const response =
+        await axios.get(
+            url,
+            {
+                headers: {
+                    ...HEADERS,
+                    "Accept":
+                        "application/json"
+                },
+                timeout: 20000
+            }
+        );
 
     return response.data;
 }
 
 
 function hasHls(sources) {
-    if (sources?.mainChannel?.hlsUrl) {
+
+    if (
+        sources?.mainChannel?.hlsUrl
+    ) {
         return true;
     }
 
-    return (sources?.partnerRooms || []).some(
-        room => !!room.hlsUrl
+    return (
+        sources?.partnerRooms || []
+    ).some(
+        room =>
+            !!room.hlsUrl
     );
 }
 
 
 async function hasRoom(match) {
+
     const slug =
-        match.id.substring("xoiche:".length);
+        match.id.substring(
+            "xoiche:".length
+        );
 
     try {
+
         const sources =
             await getSources(slug);
 
         if (hasHls(sources)) {
+
             console.log(
                 "ROOM OK:",
                 match.name
@@ -257,49 +329,52 @@ async function hasRoom(match) {
  */
 function filterEPL(matches) {
 
-    const eplTeams = new Set([
-        "Aston Villa",
-        "Nottingham Forest",
-        "Bournemouth",
-        "Brentford",
-        "Chelsea",
-        "Hull City",
-        "Crystal Palace",
-        "Ipswich Town",
-        "Liverpool",
-        "Fulham",
-        "Tottenham",
-        "Everton",
-        "Sunderland",
-        "Arsenal",
-        "Coventry City",
-        "Coventry",
-        "Brighton & Hove Albion",
-        "Brighton",
-        "Manchester United",
-        "Manchester City",
-        "Leeds United",
-        "Newcastle United"
-    ]);
+    const eplTeams =
+        new Set([
+            "Aston Villa",
+            "Nottingham Forest",
+            "Bournemouth",
+            "Brentford",
+            "Chelsea",
+            "Hull City",
+            "Crystal Palace",
+            "Ipswich Town",
+            "Liverpool",
+            "Fulham",
+            "Tottenham",
+            "Everton",
+            "Sunderland",
+            "Arsenal",
+            "Coventry City",
+            "Coventry",
+            "Brighton & Hove Albion",
+            "Brighton",
+            "Manchester United",
+            "Manchester City",
+            "Leeds United",
+            "Newcastle United"
+        ]);
 
-    return matches.filter(match => {
+    return matches.filter(
+        match => {
 
-        const home =
-            match.description
-                .split(" vs ")[0]
-                .trim();
+            const home =
+                match.description
+                    .split(" vs ")[0]
+                    .trim();
 
-        const away =
-            match.description
-                .split(" vs ")[1]
-                ?.split("\n")[0]
-                ?.trim();
+            const away =
+                match.description
+                    .split(" vs ")[1]
+                    ?.split("\n")[0]
+                    ?.trim();
 
-        return (
-            eplTeams.has(home) &&
-            eplTeams.has(away)
-        );
-    });
+            return (
+                eplTeams.has(home) &&
+                eplTeams.has(away)
+            );
+        }
+    );
 }
 
 
@@ -323,9 +398,13 @@ builder.defineCatalogHandler(
             };
         }
 
+        /*
+         * CATALOG CACHE HIT
+         */
         if (
             catalogCache.metas &&
-            Date.now() - catalogCache.time <
+            Date.now() -
+                catalogCache.time <
                 CACHE_TTL
         ) {
 
@@ -334,7 +413,8 @@ builder.defineCatalogHandler(
             );
 
             return {
-                metas: catalogCache.metas
+                metas:
+                    catalogCache.metas
             };
         }
 
@@ -352,8 +432,12 @@ builder.defineCatalogHandler(
 
             results.sort(
                 (a, b) =>
-                    new Date(a.kickoffAt) -
-                    new Date(b.kickoffAt)
+                    new Date(
+                        a.kickoffAt
+                    ) -
+                    new Date(
+                        b.kickoffAt
+                    )
             );
 
             console.log(
@@ -367,7 +451,8 @@ builder.defineCatalogHandler(
             );
 
             for (
-                const match of results
+                const match
+                of results
             ) {
 
                 console.log(
@@ -379,8 +464,11 @@ builder.defineCatalogHandler(
             }
 
             catalogCache = {
-                time: Date.now(),
-                metas: results
+                time:
+                    Date.now(),
+
+                metas:
+                    results
             };
 
             console.log(
@@ -388,7 +476,8 @@ builder.defineCatalogHandler(
             );
 
             return {
-                metas: results
+                metas:
+                    results
             };
 
         } catch (err) {
@@ -397,6 +486,24 @@ builder.defineCatalogHandler(
                 "Catalog error:",
                 err.message
             );
+
+            /*
+             * Nếu API lỗi nhưng còn
+             * catalog cache cũ thì dùng lại.
+             */
+            if (
+                catalogCache.metas
+            ) {
+
+                console.log(
+                    "Using old catalog cache"
+                );
+
+                return {
+                    metas:
+                        catalogCache.metas
+                };
+            }
 
             return {
                 metas: []
@@ -412,50 +519,212 @@ builder.defineCatalogHandler(
 builder.defineMetaHandler(
     async ({ id }) => {
 
+        /*
+         * Ưu tiên catalog cache
+         * để không gọi API lại.
+         */
+        if (
+            catalogCache.metas
+        ) {
+
+            const found =
+                catalogCache.metas.find(
+                    m =>
+                        m.id === id
+                );
+
+            if (found) {
+
+                return {
+                    meta: found
+                };
+            }
+        }
+
+        /*
+         * Nếu chưa có catalog cache
+         * mới gọi API.
+         */
         const slug =
-            id.substring("xoiche:".length);
-
-        const matches =
-            await getMatches();
-
-        const found =
-            matches.find(
-                m => m.id === id
+            id.substring(
+                "xoiche:".length
             );
 
-        return {
-            meta:
-                found ||
-                {
+        try {
+
+            const matches =
+                await getMatches();
+
+            const found =
+                matches.find(
+                    m =>
+                        m.id === id
+                );
+
+            return {
+                meta:
+                    found ||
+                    {
+                        id,
+                        type: "movie",
+                        name: slug
+                    }
+            };
+
+        } catch (err) {
+
+            console.log(
+                "Meta error:",
+                err.message
+            );
+
+            return {
+                meta: {
                     id,
                     type: "movie",
                     name: slug
                 }
-        };
+            };
+        }
     }
 );
+
+
+/*
+ * LOGO CACHE
+ *
+ * Download logo một lần rồi
+ * giữ trong RAM tối đa 7 ngày.
+ */
+async function getLogoDataUri(url) {
+
+    if (!url) {
+        return "";
+    }
+
+    const cached =
+        logoCache.get(url);
+
+    if (
+        cached &&
+        Date.now() -
+            cached.time <
+            LOGO_CACHE_TTL
+    ) {
+
+        console.log(
+            "Logo cache HIT:",
+            url
+        );
+
+        return cached.dataUri;
+    }
+
+    console.log(
+        "Logo cache MISS:",
+        url
+    );
+
+    const response =
+        await axios.get(
+            url,
+            {
+                responseType:
+                    "arraybuffer",
+                headers: HEADERS,
+                timeout: 15000
+            }
+        );
+
+    const contentType =
+        response.headers[
+            "content-type"
+        ] ||
+        "image/png";
+
+    const dataUri =
+        "data:" +
+        contentType +
+        ";base64," +
+        Buffer
+            .from(response.data)
+            .toString(
+                "base64"
+            );
+
+    logoCache.set(
+        url,
+        {
+            time:
+                Date.now(),
+
+            dataUri:
+                dataUri
+        }
+    );
+
+    return dataUri;
+}
 
 
 /*
  * POSTER
  *
  * Không gọi HLS.
- * Chỉ lấy thông tin trận + logo.
+ *
+ * Poster được cache trong RAM
+ * tối đa 24 giờ.
  */
 async function createPosterSVG(slug) {
 
+    /*
+     * POSTER CACHE
+     */
+    const cached =
+        posterCache.get(slug);
+
+    if (
+        cached &&
+        Date.now() -
+            cached.time <
+            POSTER_CACHE_TTL
+    ) {
+
+        console.log(
+            "Poster cache HIT:",
+            slug
+        );
+
+        return cached.png;
+    }
+
+    console.log(
+        "Poster cache MISS:",
+        slug
+    );
+
     let match = null;
 
-    if (catalogCache.metas) {
+    /*
+     * Ưu tiên catalog cache.
+     */
+    if (
+        catalogCache.metas
+    ) {
 
         match =
             catalogCache.metas.find(
                 m =>
                     m.id ===
-                    "xoiche:" + slug
+                    "xoiche:" +
+                    slug
             );
     }
 
+    /*
+     * Nếu không có thì
+     * mới gọi API.
+     */
     if (!match) {
 
         const matches =
@@ -465,7 +734,8 @@ async function createPosterSVG(slug) {
             matches.find(
                 m =>
                     m.id ===
-                    "xoiche:" + slug
+                    "xoiche:" +
+                    slug
             );
     }
 
@@ -484,7 +754,9 @@ async function createPosterSVG(slug) {
             .trim();
 
     const kickoff =
-        new Date(match.kickoffAt);
+        new Date(
+            match.kickoffAt
+        );
 
     const kickoffTime =
         kickoff.toLocaleTimeString(
@@ -510,47 +782,54 @@ async function createPosterSVG(slug) {
             }
         );
 
-    const escapeXml = value =>
-        String(value || "")
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&apos;");
+    const escapeXml =
+        value =>
+            String(value || "")
+                .replace(
+                    /&/g,
+                    "&amp;"
+                )
+                .replace(
+                    /</g,
+                    "&lt;"
+                )
+                .replace(
+                    />/g,
+                    "&gt;"
+                )
+                .replace(
+                    /"/g,
+                    "&quot;"
+                )
+                .replace(
+                    /'/g,
+                    "&apos;"
+                );
 
-    const homeLogoResponse =
-        await axios.get(
-            match.homeLogo,
-            {
-                responseType: "arraybuffer"
-            }
-        );
-
-    const awayLogoResponse =
-        await axios.get(
-            match.awayLogo,
-            {
-                responseType: "arraybuffer"
-            }
-        );
-
-    const homeLogo =
-        "data:image/png;base64," +
-        Buffer
-            .from(homeLogoResponse.data)
-            .toString("base64");
-
-    const awayLogo =
-        "data:image/png;base64," +
-        Buffer
-            .from(awayLogoResponse.data)
-            .toString("base64");
+    /*
+     * Download 2 logo SONG SONG.
+     */
+    const [
+        homeLogo,
+        awayLogo
+    ] = await Promise.all([
+        getLogoDataUri(
+            match.homeLogo
+        ),
+        getLogoDataUri(
+            match.awayLogo
+        )
+    ]);
 
     const home =
-        escapeXml(homeName);
+        escapeXml(
+            homeName
+        );
 
     const away =
-        escapeXml(awayName);
+        escapeXml(
+            awayName
+        );
 
     const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
@@ -727,11 +1006,33 @@ async function createPosterSVG(slug) {
 
 </svg>`;
 
-    return await sharp(
-        Buffer.from(svg)
-    )
+    const png =
+        await sharp(
+            Buffer.from(svg)
+        )
         .png()
         .toBuffer();
+
+    /*
+     * Lưu poster vào RAM cache.
+     */
+    posterCache.set(
+        slug,
+        {
+            time:
+                Date.now(),
+
+            png:
+                png
+        }
+    );
+
+    console.log(
+        "Poster cache UPDATED:",
+        slug
+    );
+
+    return png;
 }
 
 
@@ -750,8 +1051,11 @@ builder.defineStreamHandler(
 
         if (
             type !== "movie" ||
-            !id.startsWith("xoiche:")
+            !id.startsWith(
+                "xoiche:"
+            )
         ) {
+
             return {
                 streams: []
             };
@@ -765,12 +1069,16 @@ builder.defineStreamHandler(
         try {
 
             const sources =
-                await getSources(slug);
+                await getSources(
+                    slug
+                );
 
             const streams = [];
 
             if (
-                sources.mainChannel?.hlsUrl
+                sources
+                    .mainChannel
+                    ?.hlsUrl
             ) {
 
                 streams.push({
@@ -781,27 +1089,38 @@ builder.defineStreamHandler(
                         "Main Channel",
 
                     url:
-                        sources.mainChannel.hlsUrl
+                        sources
+                            .mainChannel
+                            .hlsUrl
                 });
             }
 
             for (
                 const room
-                of sources.partnerRooms || []
+                of sources
+                    .partnerRooms || []
             ) {
 
-                if (!room.hlsUrl) {
+                if (
+                    !room.hlsUrl
+                ) {
                     continue;
                 }
 
                 streams.push({
                     name:
                         "Xôi Chè - " +
-                        (room.name || "BLV"),
+                        (
+                            room.name ||
+                            "BLV"
+                        ),
 
                     title:
                         "BLV " +
-                        (room.name || ""),
+                        (
+                            room.name ||
+                            ""
+                        ),
 
                     url:
                         room.hlsUrl
@@ -817,7 +1136,9 @@ builder.defineStreamHandler(
             ) {
 
                 if (
-                    !seen.has(stream.url)
+                    !seen.has(
+                        stream.url
+                    )
                 ) {
 
                     seen.add(
@@ -836,7 +1157,8 @@ builder.defineStreamHandler(
             );
 
             return {
-                streams: unique
+                streams:
+                    unique
             };
 
         } catch (err) {
@@ -864,13 +1186,18 @@ const addonRouter =
         builder.getInterface()
     );
 
+
+/*
+ * POSTER ROUTE
+ */
 app.get(
     "/poster/:slug.png",
     async (req, res) => {
 
         try {
 
-            const png = await createPosterSVG(
+            const png =
+                await createPosterSVG(
                     req.params.slug
                 );
 
@@ -878,7 +1205,9 @@ app.get(
 
                 return res
                     .status(404)
-                    .send("Poster not found");
+                    .send(
+                        "Poster not found"
+                    );
             }
 
             res.set(
@@ -886,9 +1215,14 @@ app.get(
                 "image/png"
             );
 
+            /*
+             * Cho phép client /
+             * Stremio cache poster
+             * trong 24 giờ.
+             */
             res.set(
                 "Cache-Control",
-                "public, max-age=300"
+                "public, max-age=86400"
             );
 
             res.send(png);
@@ -902,15 +1236,19 @@ app.get(
 
             res
                 .status(500)
-                .send("Poster error");
+                .send(
+                    "Poster error"
+                );
         }
     }
 );
+
 
 app.use(
     "/",
     addonRouter
 );
+
 
 app.listen(
     PORT,
@@ -934,8 +1272,3 @@ app.listen(
         );
     }
 );
-
-
-
-
-
