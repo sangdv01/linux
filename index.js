@@ -1,6 +1,7 @@
 ﻿const axios = require("axios");
 const { addonBuilder, getRouter } = require("stremio-addon-sdk");
 const express = require("express");
+const sharp = require("sharp");
 
 const XOICHE = "https://xoiche.tv";
 const PORT = process.env.PORT || 7001;
@@ -148,9 +149,7 @@ async function getMatches() {
 
             poster:
                 PUBLIC_BASE_URL +
-                "/poster/" +
-                encodeURIComponent(match.slug) +
-                ".svg"
+                "/poster/" + encodeURIComponent(match.slug) + ".png"
         });
     }
 
@@ -517,11 +516,33 @@ async function createPosterSVG(slug) {
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&apos;");
 
+    const homeLogoResponse =
+        await axios.get(
+            match.homeLogo,
+            {
+                responseType: "arraybuffer"
+            }
+        );
+
+    const awayLogoResponse =
+        await axios.get(
+            match.awayLogo,
+            {
+                responseType: "arraybuffer"
+            }
+        );
+
     const homeLogo =
-        escapeXml(match.homeLogo);
+        "data:image/png;base64," +
+        Buffer
+            .from(homeLogoResponse.data)
+            .toString("base64");
 
     const awayLogo =
-        escapeXml(match.awayLogo);
+        "data:image/png;base64," +
+        Buffer
+            .from(awayLogoResponse.data)
+            .toString("base64");
 
     const home =
         escapeXml(homeName);
@@ -529,7 +550,7 @@ async function createPosterSVG(slug) {
     const away =
         escapeXml(awayName);
 
-    return `<?xml version="1.0" encoding="UTF-8"?>
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
      xmlns:xlink="http://www.w3.org/1999/xlink"
      width="600"
@@ -703,6 +724,12 @@ async function createPosterSVG(slug) {
     </text>
 
 </svg>`;
+
+    return await sharp(
+        Buffer.from(svg)
+    )
+        .png()
+        .toBuffer();
 }
 
 
@@ -836,17 +863,16 @@ const addonRouter =
     );
 
 app.get(
-    "/poster/:slug.svg",
+    "/poster/:slug.png",
     async (req, res) => {
 
         try {
 
-            const svg =
-                await createPosterSVG(
+            const png = await createPosterSVG(
                     req.params.slug
                 );
 
-            if (!svg) {
+            if (!png) {
 
                 return res
                     .status(404)
@@ -855,7 +881,7 @@ app.get(
 
             res.set(
                 "Content-Type",
-                "image/svg+xml"
+                "image/png"
             );
 
             res.set(
@@ -863,7 +889,7 @@ app.get(
                 "public, max-age=300"
             );
 
-            res.send(svg);
+            res.send(png);
 
         } catch (err) {
 
@@ -906,3 +932,6 @@ app.listen(
         );
     }
 );
+
+
+
