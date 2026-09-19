@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 *.log
 live3.html
 match.html
@@ -7,3 +7,4 @@ test.js
 test.ts
 xoiche.html
 page.js
+*.backup*.js
