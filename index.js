@@ -231,7 +231,7 @@ function getAceHubMetas(genre) {
         posterShape: "poster",
         banner: `${PUBLIC_BASE_URL}/poster/acehub/${encodeURIComponent(c.id.replace("acehub:", ""))}.png`,
         background: `${PUBLIC_BASE_URL}/poster/acehub/${encodeURIComponent(c.id.replace("acehub:", ""))}.png`,
-        description: `${c.title}\n\n• Độ phân giải: ${c.resolution}\n• Quốc gia: ${c.country} (${c.language})\n• Công nghệ: AceStream P2P 0-Transcode qua trạm phát aceHub\n\n${c.description}`,
+        description: `${c.title}\n\n• Độ phân giải: ${c.resolution}\n• Quốc gia: ${c.country} (${c.language})\n\n${c.description}`,
         releaseInfo: c.resolution
     }));
 }
