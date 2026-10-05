@@ -6,7 +6,7 @@ const sharp = require("sharp");
 const XOICHE = "https://xoiche.tv";
 const PORT = process.env.PORT || 7001;
 const PUBLIC_BASE_URL = process.env.RENDER_EXTERNAL_URL || `http://127.0.0.1:${PORT}`;
-const ACEHUB_LAN_HOST = process.env.ACEHUB_HOST || "172.31.99.78:8000";
+const ACEHUB_LAN_HOST = process.env.ACEHUB_HOST || "172.31.99.10:8000";
 
 /*
  * CACHE & LIMITS (Chống rò rỉ RAM trên VPS / Free Hosting)
@@ -241,7 +241,7 @@ function getAceHubMetas(genre) {
  */
 const builder = new addonBuilder({
     id: "community.xoiche",
-    version: "1.5.0",
+    version: "1.5.1",
     name: "Xôi Chè Live",
     description: "Xem trực tiếp Ngoại Hạng Anh & Thể Thao AceStream FHD",
     resources: ["catalog", "meta", "stream"],
