@@ -7,6 +7,7 @@ const XOICHE = "https://xoiche.tv";
 const PORT = process.env.PORT || 7001;
 const PUBLIC_BASE_URL = process.env.RENDER_EXTERNAL_URL || `http://127.0.0.1:${PORT}`;
 const ACEHUB_LAN_HOST = process.env.ACEHUB_HOST || "172.31.99.10:8000";
+const ACEHUB_TAILSCALE_HOST = process.env.ACEHUB_TAILSCALE_HOST || "100.87.240.34:8000";
 
 /*
  * CACHE & LIMITS (Chống rò rỉ RAM trên VPS / Free Hosting)
@@ -241,7 +242,7 @@ function getAceHubMetas(genre) {
  */
 const builder = new addonBuilder({
     id: "community.xoiche",
-    version: "1.5.1",
+    version: "1.5.2",
     name: "Xôi Chè Live",
     description: "Xem trực tiếp Ngoại Hạng Anh & Thể Thao AceStream FHD",
     resources: ["catalog", "meta", "stream"],
@@ -642,8 +643,13 @@ builder.defineStreamHandler(async ({ type, id }) => {
         return {
             streams: [
                 {
-                    name: "AceHub LAN [TV / Điện Thoại]",
-                    title: `⚡ ${name} [1080p 50fps]\nTrạm phát: http://${ACEHUB_LAN_HOST}\nDành cho Smart TV / Apple TV cùng mạng Wi-Fi`,
+                    name: "AceHub Tailscale [Nuvio / 4G / Ngoài nhà]",
+                    title: `⚡ ${name} [1080p 50fps]\nTrạm phát Tailscale: http://${ACEHUB_TAILSCALE_HOST}\nDành cho Nuvio / iPhone khi bật Tailscale`,
+                    url: `http://${ACEHUB_TAILSCALE_HOST}/live?id=${infohash}`
+                },
+                {
+                    name: "AceHub LAN [TV / Wi-Fi nhà]",
+                    title: `⚡ ${name} [1080p 50fps]\nTrạm phát LAN: http://${ACEHUB_LAN_HOST}\nDành cho Smart TV / Apple TV cùng mạng Wi-Fi`,
                     url: `http://${ACEHUB_LAN_HOST}/live?id=${infohash}`
                 },
                 {
@@ -664,7 +670,12 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
             // Luồng AceStream FHD kèm theo
             streams.push({
-                name: "AceHub [1080p 50fps]",
+                name: "AceHub Tailscale [Nuvio / 4G]",
+                title: `⚽ [AceStream FHD] Sky Sports Premier League\nTrạm phát Tailscale: http://${ACEHUB_TAILSCALE_HOST}\nDành cho Nuvio / iPhone khi bật Tailscale`,
+                url: `http://${ACEHUB_TAILSCALE_HOST}/live?id=78266c15035d0ad8cbc58f821733931e1de434ab`
+            });
+            streams.push({
+                name: "AceHub LAN [1080p 50fps]",
                 title: `⚽ [AceStream FHD] Sky Sports Premier League\nTrạm phát LAN: http://${ACEHUB_LAN_HOST}`,
                 url: `http://${ACEHUB_LAN_HOST}/live?id=78266c15035d0ad8cbc58f821733931e1de434ab`
             });
